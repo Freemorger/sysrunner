@@ -1,0 +1,5 @@
+- better logging
+- check service startup result
+- work on other states
+- extract code from main.rs
+- cli via unix socket

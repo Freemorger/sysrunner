@@ -1,0 +1,23 @@
+[services.one]
+command = "echo hi"
+depends = []
+
+[services.two]
+command = "echo hi2"
+depends = ["one"]
+
+[services.three]
+command = "echo hi3"
+depends = []
+
+[services.four]
+command = "echo hi4"
+depends = ["two", "three"]
+
+# [services.a]
+# command = "echo a"
+# depends = ["b"]
+#
+# [services.b]
+# command = "echo b"
+# depends = ["a"]
