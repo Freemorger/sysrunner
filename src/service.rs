@@ -1,4 +1,4 @@
-use std::task::Poll::Pending;
+use std::{process::Child, sync::{Arc, Mutex}, task::Poll::Pending};
 
 use crate::cfg::ServiceData;
 
@@ -6,6 +6,7 @@ use crate::cfg::ServiceData;
 pub struct Service {
     pub data:   ServiceData,
     pub state:  ServiceState,
+    pub proc:   Option<Arc<Mutex<Child>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -15,13 +16,15 @@ pub enum ServiceState {
     Running,
     Stopping,
     Stopped,
-    Failed
+    Exited,
+    Failed(Option<i32>)
 }
 
 impl ServiceState {
     pub fn is_active(self) -> bool {
         match self {
-            Self::Pending | Self::Failed | Self::Stopped => false,
+            Self::Pending | Self::Failed(_) | Self::Stopped | Self::Exited 
+                => false,
             _ => true,
         }
     }

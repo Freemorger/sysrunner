@@ -13,8 +13,9 @@ pub struct ServiceData {
 impl ServiceData {
     pub fn to_service(self) -> Service {
         return Service { 
-            data: self, 
-            state: ServiceState::Pending
+            data:  self,
+            state: ServiceState::Pending,
+            proc:  None
         }
     }
 }

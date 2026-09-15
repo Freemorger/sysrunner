@@ -1,0 +1,3 @@
+- logger
+- heading towards making this pid1
+- removed expect in spawn
