@@ -1,3 +1,2 @@
-- logger
-- heading towards making this pid1
-- removed expect in spawn
+v0.1.2: 
+- reading config from multiple files

@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fs, process::{Child, Command}, sync::{Arc, Mutex}};
+use std::{collections::HashMap, fs, io, path::Path, process::{Child, Command}, sync::{Arc, Mutex}};
+
+use walkdir::WalkDir;
 
 use crate::{cfg::ServicesList, log::{LogLevel, log}, service::{Service, ServiceState}};
 
@@ -8,20 +10,44 @@ pub struct ServiceManager {
 }
 
 impl ServiceManager {
-    pub fn setup_from_cfg(&mut self, cfg_fname: &str) 
+    pub fn setup_from_cfg(&mut self, dir: &str) 
         -> Result<(), Box<dyn std::error::Error>> {
         
-        let cfg_str = fs::read_to_string(cfg_fname)?;
+        let mut files = Vec::new();
 
-        let sd_list: ServicesList = toml::from_str(&cfg_str)?;
+        for entry in WalkDir::new(dir) {
+            match entry {
+                Ok(de) => {
+                    let path = de.path().to_owned();
 
-        let services: HashMap<String, Service> = sd_list.services
-            .iter().map(|sd| {
-                let c = sd.clone();
-                (c.0.to_owned(), c.1.clone().to_service())
-        }).collect(); 
+                    if path.is_file() && path.extension() == Some("toml".as_ref()) {
+                        files.push(path);
+                    }
+                }
+                Err(e) => {
+                    log(LogLevel::Error, &format!(
+                        "Error reading directory {}: {}",
+                        dir, e
+                    ));
+                }
+            }
+        }
+
+        let mut all_services = HashMap::new();
+        for cfg_fname in &files {
+            let cfg_str = fs::read_to_string(cfg_fname)?;
+
+            let sd_list: ServicesList = toml::from_str(&cfg_str)?;
+
+            let services: HashMap<String, Service> = sd_list.services
+                .iter().map(|sd| {
+                    let c = sd.clone();
+                    (c.0.to_owned(), c.1.clone().to_service())
+            }).collect(); 
+            all_services.extend(services);
+        }
         
-        self.services = services;
+        self.services = all_services;
 
         Ok(()) 
     }

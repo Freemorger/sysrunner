@@ -15,8 +15,8 @@ mod log;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> { 
     let mut mngr = ServiceManager::default();
-  
-    mngr.setup_from_cfg("services.toml")?;
+    
+    mngr.setup_from_cfg("cfg/")?;
     log(LogLevel::Info, "Config processed.");
 
     mngr.startup()?;
