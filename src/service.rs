@@ -29,3 +29,19 @@ impl ServiceState {
         }
     }
 }
+
+impl std::fmt::Display for ServiceState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pending  => write!(f, "Pending"),
+            Self::Starting => write!(f, "Starting"),
+            Self::Running  => write!(f, "Running"),
+            Self::Stopping => write!(f, "Stopping"),
+            Self::Stopped  => write!(f, "Stopped"),
+            Self::Exited   => write!(f, "Exited"),
+            Self::Failed(c) if c.is_some() => 
+                write!(f, "Failed (status code {})", c.unwrap()),
+            Self::Failed(_) => write!(f, "Failed"),
+        }
+    }
+}

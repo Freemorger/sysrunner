@@ -1,2 +1,3 @@
-v0.1.2: 
-- reading config from multiple files
+v0.2.0:
+- some cli now
+- client subcommands: `ping`, `status`, `pid`, `ps`

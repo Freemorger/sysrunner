@@ -3,19 +3,79 @@ use std::sync::{Arc, Mutex};
 use std::time;
 use std::{collections::HashMap, fs, process::Command};
 
+use clap::Parser;
+
 use crate::cfg::{ServicesList};
+use crate::cli::Commands;
+use crate::client::send_command;
 use crate::log::{LogLevel, log};
-use crate::manager::ServiceManager;
+use crate::manager::{IpcCommand, SYSRUNNER_IPC_FILEPATH, ServiceManager};
 use crate::service::{Service, ServiceState};
 
 mod cfg;
 mod service;
 mod manager;
 mod log;
+mod cli;
+mod client;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> { 
-    let mut mngr = ServiceManager::default();
+    let cli = cli::CliArgs::parse();
+
+    match cli.command {
+        Some(Commands::Serve) => {
+            return serve();
+        }
+        Some(Commands::Ping) => {
+            let resp = send_command(IpcCommand::Ping)?;
+            match resp {
+                IpcCommand::Response(s) => println!("{}", s),
+                _ => {}
+            }
+            return Ok(());
+        }
+        Some(Commands::Pid { service_name }) => { 
+            let resp = send_command(IpcCommand::Pid(service_name))?;
+            match resp {
+                IpcCommand::Response(s) => println!("{}", s),
+                _ => {}
+            }
+            return Ok(());
+        }
+        Some(Commands::Status { service_name }) => { 
+            let resp = send_command(IpcCommand::Status(service_name))?;
+            match resp {
+                IpcCommand::Response(s) => println!("{}", s),
+                _ => {}
+            }
+            return Ok(());
+        }
+        Some(Commands::Ps) => { 
+            let resp = send_command(IpcCommand::Ps)?;
+            match resp {
+                IpcCommand::Response(s) => println!("{}", s),
+                _ => {}
+            }
+            return Ok(());
+        }
+        _ => {
+            eprintln!("Please, specify command or try fencyc --help.");
+            return Ok(());
+        }
+    } 
+}
+
+fn serve() -> Result<(), Box<dyn std::error::Error>> {
+    let ipc      = ServiceManager::def_sock()?;
+
+    log(LogLevel::Info, &format!(
+        "IPC Socket listens at {}.", 
+        SYSRUNNER_IPC_FILEPATH
+    ));
+
+    let mut mngr = ServiceManager::new(ipc);
     
+    // TODO: change paths to /etc/ or whatever in UDS
     mngr.setup_from_cfg("cfg/")?;
     log(LogLevel::Info, "Config processed.");
 

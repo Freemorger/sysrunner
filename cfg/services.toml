@@ -1,3 +1,4 @@
+# Test suite config
 [services.one]
 command = "echo hi"
 depends = []
@@ -10,8 +11,14 @@ depends = ["one"]
 command = "echo hi3"
 depends = []
 
+# See:
+# https://github.com/Freemorger/after
 [services.four]
-command = "echo hi4"
+command = "after 20s echo delayed1"
+depends = ["two", "three"]
+
+[services.five]
+command = "after 20s echo delayed2"
 depends = ["two", "three"]
 
 # [services.a]
