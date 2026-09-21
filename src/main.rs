@@ -18,6 +18,7 @@ mod manager;
 mod log;
 mod cli;
 mod client;
+mod deps;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> { 
     let cli = cli::CliArgs::parse();

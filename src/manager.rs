@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, io::{self, ErrorKind, Read, Write}, net::Shu
 
 use walkdir::WalkDir;
 
-use crate::{cfg::ServicesList, log::{LogLevel, log}, service::{Service, ServiceState}};
+use crate::{cfg::ServicesList, deps::DepGraph, log::{LogLevel, log}, service::{Service, ServiceState}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +29,7 @@ pub enum IpcCommand {
 #[derive(Debug)]
 pub struct ServiceManager {
     services:        HashMap<String, Service>,
+    deps:            DepGraph,
     ipc_socket:      UnixListener,
     pending_clients: Vec<UnixStream>
 }
@@ -47,6 +48,7 @@ impl ServiceManager {
         return ServiceManager { 
             services: HashMap::new(), 
             ipc_socket,
+            deps: DepGraph::default(), 
             pending_clients: Vec::new()
         }
     }
@@ -88,6 +90,7 @@ impl ServiceManager {
             all_services.extend(services);
         }
         
+        self.deps     = DepGraph::from_services(&all_services);
         self.services = all_services;
 
         Ok(()) 

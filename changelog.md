@@ -1,3 +1,2 @@
-v0.2.0:
-- some cli now
-- client subcommands: `ping`, `status`, `pid`, `ps`
+v0.2.1:
+- dep graph added

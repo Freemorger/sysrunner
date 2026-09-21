@@ -14,12 +14,12 @@ depends = []
 # See:
 # https://github.com/Freemorger/after
 [services.four]
-command = "after 20s echo delayed1"
+command = "after 3s echo delayed1"
 depends = ["two", "three"]
 
-[services.five]
-command = "after 20s echo delayed2"
-depends = ["two", "three"]
+# [services.five]
+# command = "after 20s echo delayed2"
+# depends = ["two", "three"]
 
 # [services.a]
 # command = "echo a"
