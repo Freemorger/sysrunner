@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::service::{Service, ServiceState};
+use crate::service::{Service, ServiceState, StartReason};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServiceData {
+    pub name:    String,
+    pub enabled: bool,
     pub command: String,
     pub depends: Vec<String>,
 }
@@ -14,8 +16,9 @@ impl ServiceData {
     pub fn to_service(self) -> Service {
         return Service { 
             data:  self,
-            state: ServiceState::Pending,
-            proc:  None
+            state: ServiceState::None,
+            proc:  None,
+            reasn: StartReason::None,
         }
     }
 }

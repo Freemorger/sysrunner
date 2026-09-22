@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, io::{self, ErrorKind, Read, Write}, net::Shu
 
 use walkdir::WalkDir;
 
-use crate::{cfg::ServicesList, deps::DepGraph, log::{LogLevel, log}, service::{Service, ServiceState}};
+use crate::{cfg::ServicesList, deps::DepGraph, log::{LogLevel, log}, service::{Service, ServiceState, StartReason, StartResult}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ pub struct ServiceManager {
     services:        HashMap<String, Service>,
     deps:            DepGraph,
     ipc_socket:      UnixListener,
-    pending_clients: Vec<UnixStream>
+    pending_clients: Vec<UnixStream>,
 }
 
 pub const SYSRUNNER_IPC_FILEPATH: &str = "/tmp/sysrunner_ipc.sock";
@@ -96,84 +96,125 @@ impl ServiceManager {
         Ok(()) 
     }
 
+    fn start_service(&mut self, srvc: &mut Service, reason: StartReason) 
+        -> StartResult {
+        if srvc.state.is_active() || srvc.state.is_pending() {
+            return StartResult::AlreadyActive;
+        }
+        let srvc_name = srvc.data.name.clone();
+
+        let mut can_proceed = true;
+        for depnm in &srvc.data.depends {
+            let mut dep = match self.services.get(depnm) {
+                Some(v) => v.clone(),
+                None => {
+                    log(
+                        LogLevel::Error, &format!( 
+                            "Unknown service in {}'s dependency list: {}",
+                            srvc.data.name, depnm
+                        )
+                    );
+                    can_proceed = false;
+                    break;
+                }
+            };
+            log(LogLevel::Warn, &format!("DBG dep {} state {}", dep.data.name, dep.state));
+            
+            if !dep.state.is_active() || dep.state.is_pending() {
+                let dep_start_res = self.start_service(
+                    &mut dep, 
+                    StartReason::AsDep
+                );
+                log(LogLevel::Info, &format!(
+                    "Starting dependency {} required for {}, result: {:?}",
+                    dep.data.name, srvc_name, dep_start_res
+                ));
+            }
+            
+            if !dep.state.is_active() {
+                can_proceed = false;
+            } else {
+                self.services.insert(dep.data.name.clone(), dep.clone());
+            }
+        }
+        if !can_proceed {
+            return StartResult::DepFault;
+        }
+
+        let mut parts = srvc.data.command.split_whitespace();
+
+        let mut child: Option<Child> = None;
+        if let Some(program) = parts.next() {
+            child = match Command::new(program)
+                .args(parts)
+                .spawn()
+            {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    log(LogLevel::Error, &format!(
+                        "Failed to spawn {}: {}", program, e)
+                    );
+                    srvc.state = ServiceState::SpawnFailure;
+                    return StartResult::SpawnFault;
+                }
+            };
+        };
+        srvc.state = ServiceState::Starting;
+        
+        // must be, atp
+        if child.is_some() {
+            srvc.proc  = Some(Arc::new(Mutex::new(child.unwrap())));
+        }
+
+        srvc.reasn = reason;
+        self.services.insert(srvc_name, srvc.to_owned());
+        return StartResult::Success;
+    }
+
     pub fn startup(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         while !self.services.iter().all(|s| {
-            s.1.state.is_active()
-        }) { 
-            let mut to_activate: HashMap<String, Option<Child>> = HashMap::new();
+            s.1.state.is_active() || !s.1.data.enabled
+        }) {
+            let before: HashMap<String, ServiceState> = self.services
+                .iter()
+                .map(|(k, v)| (k.clone(), v.state))
+                .collect();
 
-            for (snm, srvc) in &self.services {
-                if srvc.state.is_active() {
+            let names: Vec<String> = self.services.keys().cloned().collect();
+
+            for name in names {
+                if !self.services[&name].data.enabled {
                     continue;
                 }
-
-                let mut can_proceed = true;
-                for depnm in &srvc.data.depends {
-                    let dep = match self.services.get(depnm) {
-                        Some(v) => v,
-                        None => {
-                            log(
-                                LogLevel::Error, &format!( 
-                                    "Unknown service in {}'s dependency list: {}",
-                                    snm, depnm
-                                )
-                            );
-                            can_proceed = false;
-                            break;
-                        }
-                    };
-                    if !dep.state.is_active() {
-                        can_proceed = false;
-                    }
-                }
-                if !can_proceed {
-                    continue;
-                }
-
-                let mut parts = srvc.data.command.split_whitespace();
-
-                let mut child: Option<Child> = None;
-                if let Some(program) = parts.next() {
-                    child = match Command::new(program)
-                        .args(parts)
-                        .spawn()
-                    {
-                        Ok(c) => Some(c),
-                        Err(e) => {
-                            log(LogLevel::Error, &format!(
-                                "Failed to spawn {}: {}", program, e)
-                            );
-                            None
-                        }
-                    };
-                }
-                to_activate.insert(snm.clone(), child);
+                let mut s = self.services[&name].clone();
+                self.start_service(&mut s, StartReason::Enabled);
             }
 
-            if to_activate.len() == 0 {
-                log(
-                    LogLevel::Error, &format!(
-                        "ERROR: Seems like there's a deadlock in services \
-                        dependencies which causes startup to fail.\n\
-                        Unstarted services: {:#?}",
-                        self.services.values()
-                            .filter(|s| !s.state.is_active())
-                            .cloned()
-                            .collect::<Vec<Service>>()
-                    )
-                );
+            let to_activate: HashMap<String, Service> = self.services
+                .iter()
+                .filter(|(k, v)| before.get(*k).map_or(true, |old| *old != v.state))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            if to_activate.is_empty() {
+                log(LogLevel::Error, &format!(
+                    "ERROR: Seems like there's a deadlock in services \
+                    dependencies which causes startup to fail.\n\
+                    Unstarted services: {:#?}",
+                    self.services.values()
+                        .filter(|s| !s.state.is_active())
+                        .cloned()
+                        .collect::<Vec<Service>>()
+                ));
                 break;
             }
 
-            for (snm, chld) in to_activate {
-                let s   = self.services.get_mut(&snm).unwrap();
-                s.state = ServiceState::Starting;
-                
-                if let Some(child) = chld {
-                    s.proc = Some(Arc::new(Mutex::new(child)));
-                };
+            for (snm, s) in to_activate {
+                log(LogLevel::Info, &format!(
+                    "Service {} was started and is {} now.",
+                    snm, s.state
+                ));
             }
-            
         }
 
         Ok(())
@@ -302,7 +343,46 @@ impl ServiceManager {
                 return Ok(IpcCommand::Response("Pong".to_owned()));
             } 
             IpcCommand::Start(service_name) => {
-                todo!()
+                if self.services.get(service_name).is_some() {
+                    let mut s = self.services.get(service_name).unwrap().clone();
+                    
+                    if s.state.is_active() {
+                        return Ok(IpcCommand::Response(format!(
+                            "{} is already active (state: {})",
+                            service_name, s.state
+                        )));
+                    }
+
+                    match self.start_service(&mut s, StartReason::OnDemand) {
+                        StartResult::Success => {
+                            log(LogLevel::Info, &format!( 
+                                "Service {} was started on demand.",
+                                s.data.name
+                            ));
+                            self.services.insert(service_name.to_owned(), s);
+                            return Ok(IpcCommand::Response("Success.".into()));
+                        }
+                        StartResult::DepFault => {
+                            return Ok(IpcCommand::Response(
+                                "Unexpected Dependency fault!".into()
+                            ));
+                        }
+                        StartResult::SpawnFault => {
+                            return Ok(IpcCommand::Response(
+                                "Spawn fault".into()
+                            ));
+                        }
+                        other => {
+                            return Ok(IpcCommand::Response(format!(
+                                "Other error: {:?}", other
+                            )));
+                        }
+                    }
+                } else {
+                    return Ok(IpcCommand::Response(format!(
+                        "Unknown service name: {}", service_name
+                    )));
+                }
             }
             IpcCommand::Ps => {
                 let mut res = format!(
@@ -353,14 +433,26 @@ impl ServiceManager {
                     None => None,
                 };
 
+                let reason_str = match service.reasn {
+                    StartReason::None => "(not active)".into(),
+                    other => format!("{:?}", other)
+                };
+
                 let res = format!(
                     "Service {}\n\
+                    Enabled: {}\n\
                     State: {}\n\
+                    Started because: {}\n\
                     PId: {}\n\
-                    Depends on: {:#?}",
-                    service_name, service.state,
+                    Depends on: {:?}\n\
+                    Required for: {:?}\n\
+                    ",
+                    service_name, service.data.enabled, service.state,
+                    reason_str,
                     pid.map_or("(unavailable)".to_owned(), |p| {p.to_string()}), 
-                    service.data.depends
+                    service.data.depends, 
+                    self.deps.reverse.get(service_name)
+                        .unwrap_or(&Vec::new())
                 );
 
                 return Ok(IpcCommand::Response(res));

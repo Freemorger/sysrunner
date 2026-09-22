@@ -7,25 +7,36 @@ pub struct Service {
     pub data:   ServiceData,
     pub state:  ServiceState,
     pub proc:   Option<Arc<Mutex<Child>>>,
+    pub reasn:  StartReason,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceState {
-    Pending,
+    None, // not processed for startup yet 
+    Pending, // to be executed
     Starting,
     Running,
     Stopping,
     Stopped,
     Exited,
-    Failed(Option<i32>)
+    Failed(Option<i32>),
+    SpawnFailure,
 }
 
 impl ServiceState {
     pub fn is_active(self) -> bool {
         match self {
-            Self::Pending | Self::Failed(_) | Self::Stopped | Self::Exited 
+            Self::Failed(_) | Self::Stopped | Self::Exited | Self::None |
+                Self::SpawnFailure | Self::Pending
                 => false,
             _ => true,
+        }
+    }
+
+    pub fn is_pending(self) -> bool {
+        match self {
+            Self::Pending => true,
+            _ => false,
         }
     }
 }
@@ -33,6 +44,7 @@ impl ServiceState {
 impl std::fmt::Display for ServiceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::None     => write!(f, "Not processed"),
             Self::Pending  => write!(f, "Pending"),
             Self::Starting => write!(f, "Starting"),
             Self::Running  => write!(f, "Running"),
@@ -42,6 +54,24 @@ impl std::fmt::Display for ServiceState {
             Self::Failed(c) if c.is_some() => 
                 write!(f, "Failed (status code {})", c.unwrap()),
             Self::Failed(_) => write!(f, "Failed"),
+            Self::SpawnFailure => write!(f, "Process spawn failed"),
         }
     }
+}
+
+/// Result of starting a service.
+#[derive(Debug)]
+pub enum StartResult {
+    Success,
+    AlreadyActive,
+    DepFault,
+    SpawnFault,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StartReason {
+    None, // not started 
+    Enabled,
+    AsDep,
+    OnDemand,
 }

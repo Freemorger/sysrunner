@@ -23,47 +23,37 @@ mod deps;
 fn main() -> Result<(), Box<dyn std::error::Error>> { 
     let cli = cli::CliArgs::parse();
 
-    match cli.command {
+    let resp = match cli.command {
         Some(Commands::Serve) => {
             return serve();
         }
+        Some(Commands::Start { service_name }) => {
+            send_command(IpcCommand::Start(service_name))?
+        }
         Some(Commands::Ping) => {
-            let resp = send_command(IpcCommand::Ping)?;
-            match resp {
-                IpcCommand::Response(s) => println!("{}", s),
-                _ => {}
-            }
-            return Ok(());
+            send_command(IpcCommand::Ping)?
         }
         Some(Commands::Pid { service_name }) => { 
-            let resp = send_command(IpcCommand::Pid(service_name))?;
-            match resp {
-                IpcCommand::Response(s) => println!("{}", s),
-                _ => {}
-            }
-            return Ok(());
+            send_command(IpcCommand::Pid(service_name))?
         }
         Some(Commands::Status { service_name }) => { 
-            let resp = send_command(IpcCommand::Status(service_name))?;
-            match resp {
-                IpcCommand::Response(s) => println!("{}", s),
-                _ => {}
-            }
-            return Ok(());
+            send_command(IpcCommand::Status(service_name))?
         }
         Some(Commands::Ps) => { 
-            let resp = send_command(IpcCommand::Ps)?;
-            match resp {
-                IpcCommand::Response(s) => println!("{}", s),
-                _ => {}
-            }
-            return Ok(());
+            send_command(IpcCommand::Ps)?
         }
         _ => {
             eprintln!("Please, specify command or try fencyc --help.");
             return Ok(());
         }
-    } 
+    };
+    
+
+    match resp {
+        IpcCommand::Response(s) => println!("{}", s),
+        _ => {}
+    }
+    return Ok(());
 }
 
 fn serve() -> Result<(), Box<dyn std::error::Error>> {

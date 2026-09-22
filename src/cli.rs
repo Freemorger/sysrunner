@@ -16,7 +16,12 @@ pub enum Commands {
     /// If it is, it will respond with "Pong".
     Ping, 
 
-    Start,
+    /// Start an unstarted service 
+    Start {
+        #[arg(help = "Service name")]
+        service_name: String,
+    },
+
     Stop,
     Restart,
     Enable,
