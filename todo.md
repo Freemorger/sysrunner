@@ -1,5 +1,5 @@
 - cli via unix socket
-    - management subcommands: `stop`, `restart`, `enable`, `disable`
-    - others: `shutdown`, `reload`
+    - management subcommands: `restart`, `enable`, `disable`
+    - others: `shutdown` (finish), `reload` (config)
 
 - finalize transition of this into pid1

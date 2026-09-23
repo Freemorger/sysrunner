@@ -1,6 +1,6 @@
-v0.2.2:
-- added `enabled` field for config
-- added `name` field for config 
-- updated `status` subcommand (added enable and dependants info)
-- new subcommand `start`
-- reworked startup
+v0.2.3:
+- added license notes in source code files and readme
+- `shutdown` subcommand
+- you now can start multiple services at once with `start` 
+- `stop` subcommand
+- extracted some logic from src/main.rs to src/cli.rs

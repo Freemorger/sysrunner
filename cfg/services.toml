@@ -25,11 +25,11 @@ enabled = true
 command = "after 15s echo delayed1"
 depends = ["two"]
 
-# [services.five]
-# name = "five"
-# enabled = true 
-# command = "after 20s echo delayed2"
-# depends = ["two", "three"]
+[services.five]
+name = "five"
+enabled = false 
+command = "after 10s echo delayed2"
+depends = ["two", "three"]
 
 # [services.a]
 # name = "a"

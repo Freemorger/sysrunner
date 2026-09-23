@@ -1,3 +1,19 @@
+// sysrunner - A lightweight init system for Unix-like systems
+// Copyright (C) 2026 [Freemorger]
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 use std::time;
@@ -23,40 +39,12 @@ mod deps;
 fn main() -> Result<(), Box<dyn std::error::Error>> { 
     let cli = cli::CliArgs::parse();
 
-    let resp = match cli.command {
-        Some(Commands::Serve) => {
-            return serve();
-        }
-        Some(Commands::Start { service_name }) => {
-            send_command(IpcCommand::Start(service_name))?
-        }
-        Some(Commands::Ping) => {
-            send_command(IpcCommand::Ping)?
-        }
-        Some(Commands::Pid { service_name }) => { 
-            send_command(IpcCommand::Pid(service_name))?
-        }
-        Some(Commands::Status { service_name }) => { 
-            send_command(IpcCommand::Status(service_name))?
-        }
-        Some(Commands::Ps) => { 
-            send_command(IpcCommand::Ps)?
-        }
-        _ => {
-            eprintln!("Please, specify command or try fencyc --help.");
-            return Ok(());
-        }
-    };
-    
+    cli.execute()?;
 
-    match resp {
-        IpcCommand::Response(s) => println!("{}", s),
-        _ => {}
-    }
     return Ok(());
 }
 
-fn serve() -> Result<(), Box<dyn std::error::Error>> {
+pub fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let ipc      = ServiceManager::def_sock()?;
 
     log(LogLevel::Info, &format!(

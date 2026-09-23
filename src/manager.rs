@@ -1,30 +1,13 @@
-use std::{collections::HashMap, fs, io::{self, ErrorKind, Read, Write}, net::Shutdown, os::unix::net::{UnixListener, UnixStream}, path::Path, process::{self, Child, Command}, sync::{Arc, Mutex}, thread::sleep, time::Duration};
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 [Freemorger]
+
+use std::{collections::HashMap, fs, io::{self, ErrorKind, Read, Write}, net::Shutdown, os::unix::net::{UnixListener, UnixStream}, path::
+Path, process::{self, Child, Command}, sync::{Arc, Mutex}, thread::sleep, time::Duration};
 
 use walkdir::WalkDir;
 
 use crate::{cfg::ServicesList, deps::DepGraph, log::{LogLevel, log}, service::{Service, ServiceState, StartReason, StartResult}};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum IpcCommand {
-    None,
-    
-    Response(String),
-
-    Ping,
-    
-    Start(String),
-    Restart(String),
-    Enable(String),
-    Disable(String),
-
-    Status(String),
-    Pid(String),
-    
-    Ps,
-    
-    Shutdown,
-}
 
 #[derive(Debug)]
 pub struct ServiceManager {
@@ -32,6 +15,7 @@ pub struct ServiceManager {
     deps:            DepGraph,
     ipc_socket:      UnixListener,
     pending_clients: Vec<UnixStream>,
+    running:         bool,
 }
 
 pub const SYSRUNNER_IPC_FILEPATH: &str = "/tmp/sysrunner_ipc.sock";
@@ -49,7 +33,8 @@ impl ServiceManager {
             services: HashMap::new(), 
             ipc_socket,
             deps: DepGraph::default(), 
-            pending_clients: Vec::new()
+            pending_clients: Vec::new(),
+            running: false,
         }
     }
 
@@ -221,7 +206,8 @@ impl ServiceManager {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        while self.services.iter().any(|(_, s)| s.state.is_active() ) {
+        self.running = true;
+        while self.running {
             let mut updated: HashMap<String, Service> = HashMap::new();
             for (snm, s) in &self.services {
                 if let Some(ch) = &s.proc {
@@ -230,7 +216,9 @@ impl ServiceManager {
 
                     match guard.try_wait()? {
                         Some(status) => { 
-                            if status.success() {
+                            if s.state == ServiceState::Stopping {
+                                cl.state = ServiceState::Stopped;
+                            } else if status.success() {
                                 cl.state = ServiceState::Exited;
                             } else {
                                 cl.state = ServiceState::Failed(status.code());
@@ -486,6 +474,45 @@ impl ServiceManager {
                     ));
                 };
             }
+            IpcCommand::Shutdown() => {
+                // TODO: stop processes, in reverse dep order (important!)
+                // this command is for early stages, probably
+                self.running = false;
+                return Ok(IpcCommand::Response("Success".into()));
+            }
+            IpcCommand::Stop(snm) => {
+                match self.stop_service(snm) {
+                    StopResult::Success => {
+                        return Ok(IpcCommand::Response("Success".into()));
+                    }
+                    StopResult::Inactive => {
+                        let state = match self.services.get(snm) {
+                            Some(s) => format!("{}", s.state),
+                            None => "(unknown)".into(),
+                        };
+
+                        return Ok(IpcCommand::Response(format!(
+                            "{} is not currently active (it is {}).",
+                            snm, state 
+                        )));
+                    }
+                    StopResult::UnknownService => {
+                        return Ok(IpcCommand::Response(
+                            "Unknown service.".into()
+                        ));
+                    }
+                    StopResult::BadDep => {
+                        return Ok(IpcCommand::Response(
+                            "Problematic dependency.".into()
+                        ));
+                    }
+                    StopResult::BadKill => {
+                        return Ok(IpcCommand::Response(
+                            "An error occured after trying to kill the process.".into()
+                        ));
+                    }
+                }
+            }
             other => {
                 log(LogLevel::Warn, &format!(
                     "Client tried to send unknown command: {:#?}", other
@@ -494,6 +521,60 @@ impl ServiceManager {
             }
         }
     }
+
+    fn stop_service(&mut self, nm: &str) -> StopResult {
+        let mut srvc = match self.services.get(nm) {
+            Some(s) => s.clone(),
+            None => {
+                log(LogLevel::Error, &format!(
+                    "Error while stopping a service: {} is unknown",
+                    nm
+                ));
+                return StopResult::UnknownService
+            },
+        };
+
+        if !(srvc.state.is_active()) {
+            return StopResult::Inactive;
+        }
+
+        let dependants = self.deps.reverse.get(nm)
+            .unwrap_or(&Vec::new())
+            .clone();
+
+        for d in dependants {
+            self.stop_service(&d);
+        }
+
+        if let Some(c) = &srvc.proc {
+            let mut guard = c.lock().unwrap();
+
+            match guard.kill() {
+                Ok(()) => {},
+                Err(e) => {
+                    log(LogLevel::Error, &format!(
+                        "Error while killing {}'s process: {}",
+                        nm, e
+                    ));
+                    return StopResult::BadKill;
+                }
+            }
+        };
+
+        srvc.state = ServiceState::Stopping;
+        self.services.insert(nm.to_owned(), srvc);
+
+        StopResult::Success
+    }
+}
+
+#[derive(Debug)]
+pub enum StopResult {
+    Success,
+    UnknownService,
+    BadDep,
+    Inactive,
+    BadKill,
 }
 
 impl Drop for ServiceManager {
@@ -521,6 +602,38 @@ impl Drop for ServiceManager {
                     e
                 ));
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IpcCommand {
+    None,
+    
+    Response(String),
+
+    Ping,
+    
+    Start(String),
+    Stop(String),
+    Restart(String),
+    Enable(String),
+    Disable(String),
+
+    Status(String),
+    Pid(String),
+    
+    Ps,
+    
+    Shutdown(),
+}
+
+impl IpcCommand {
+    /// Prints message if it's a response variant 
+    pub fn print_if_resp(&self) {
+        match self {
+            Self::Response(s) => println!("{}", s),
+            _ => {}
         }
     }
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 [Freemorger]
+
 use std::{fs::{File, OpenOptions}, sync::{Mutex, OnceLock}, io::{Write}};
 
 use chrono::Local;

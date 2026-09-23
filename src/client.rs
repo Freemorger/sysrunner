@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 [Freemorger]
+
 use std::{io::{Read, Write}, os::unix::net::UnixStream};
 
 use crate::manager::{IpcCommand, SYSRUNNER_IPC_FILEPATH};

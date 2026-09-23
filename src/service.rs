@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 [Freemorger]
+
 use std::{process::Child, sync::{Arc, Mutex}, task::Poll::Pending};
 
 use crate::cfg::ServiceData;
@@ -7,6 +10,7 @@ pub struct Service {
     pub data:   ServiceData,
     pub state:  ServiceState,
     pub proc:   Option<Arc<Mutex<Child>>>,
+
     pub reasn:  StartReason,
 }
 
